@@ -1,178 +1,153 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
-using System.Linq;
+using System.IO;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace CtYun
 {
     public class Encryption
     {
-        List<Memory<byte>> buffers = new List<Memory<byte>>();
+        // 1. 使用 Memory 存储，但计算时优先用 Span
+        private readonly List<Memory<byte>> _buffers = new();
+        public uint AuthMechanism { get; set; } = 1;
 
-        public uint auth_mechanism { get; set; } = 1;
         public byte[] Execute(byte[] key)
         {
-            ////第一步处理数据
-            resolveInboundData(key);
+            // 第一步：处理数据
+            ResolveInboundData(key);
 
-            //this.pub_key = function(e, t) 执行这个返回l
-            var pubkey = pub_key();
+            // 第二步：提取公钥 (n 和 e)
+            var (n, eValue) = GetPublicKey();
 
-            //执行function L(e, t) {
-            var buffer =  L(128, "\u0000", pubkey);
-            return ToBuffer(buffer);
+            // 第三步：RSA-OAEP 填充与加密
+            byte[] encrypted = L(128, "", n, eValue);
+
+            // 第四步：封装报文
+            return ToBuffer(encrypted);
         }
-        public byte[] ToBuffer(byte[] buffer)
+        private void ResolveInboundData(byte[] data)
         {
-            using (var ms = new MemoryStream())
-            using (var writer = new BinaryWriter(ms))
-            {
-                // 1. 先写入 auth_mechanism（4 字节）
-                writer.Write(auth_mechanism);
-
-                // 2. 然后写入原始数据
-                writer.Write(buffer);
-
-                // 获取完整的新数据
-                return ms.ToArray();
-
-            }
-
+            // 现代写法：直接切片，不产生拷贝
+            _buffers.Add(data.AsMemory(16));
         }
-        int Read24BitValue(byte[] s, int startIndex)
+        private (BigInteger N, int E) GetPublicKey()
         {
-            if (startIndex + 2 >= s.Length)
-                throw new ArgumentException("Not enough data in array");
+            // 假设 buffers[0] 的 32 字节开始是公钥 N
+            ReadOnlySpan<byte> nSource = _buffers[0].Span.Slice(32, 129);
 
-            int value = s[startIndex++];
-            for (int i = 1; i < 3; i++)
-            {
-                value <<= 8;
-                value |= s[startIndex++];
-            }
+            // BigInteger 构造函数：isUnsigned 确保不被当成负数，isBigEndian 符合 JS 原逻辑
+            var n = new BigInteger(nSource, isUnsigned: true, isBigEndian: true);
 
-            return value;
+            // 提取 24 位指数 E
+            ReadOnlySpan<byte> eSource = _buffers[0].Span.Slice(163, 3);
+            int e = (eSource[0] << 16) | (eSource[1] << 8) | eSource[2];
+
+            return (n, e);
         }
 
-
-        void resolveInboundData(byte[] data)
+        private byte[] L(int keyLen, string label, BigInteger n, int e)
         {
-            //获取到的数据从索引 16 开始的数据复制一份，删除前面16个字符
-            Memory<byte> payload = new Memory<byte>(data, 16, data.Length - 16);
-            buffers.Add(payload);
-        }
-
-        E pub_key()
-        {
-            byte[] e = buffers[0].ToArray().AsMemory(32, 129).ToArray();
-            var l = new E();
-            l.n.FromString(e);
-            l.e = Read24BitValue(buffers[0].ToArray(), 163);
-            return l;
-        }
-
-
-        byte[] L(int e, string t,E pubkey)
-        {
-            byte[] r = new byte[20];
-            RandomNumberGenerator.Fill(r);
-            //随机生成密钥
+            // 1. 生成 20 字节随机 Seed (类似 OAEP 结构)
+            byte[] seed = new byte[20];
 #if DEBUG
-            r = new byte[]
-        {
-    90,  64, 187, 211, 235,   2,  14, 254,
-   104, 220,  29, 151, 185, 105, 121, 211,
-    98, 253,  44, 232
-        };
+            seed = new byte[] { 90, 64, 187, 211, 235, 2, 14, 254, 104, 220, 29, 151, 185, 105, 121, 211, 98, 253, 44, 232 };
+
+#else
+            RandomNumberGenerator.Fill(seed);
 #endif
 
-            var i = e - 1 - r.Length;
-            var l = i - t.Length - 1;
-            var a = new byte[i];
-            var resulta = Sha1JsEquivalent.S("");
-            for (int k = 0; k < resulta.Length; k++)
-            {
-                a[k] = (byte)resulta[k];
-            }
-            a[l] = 1;
-            for (int o = 0; o < t.Length; o++)
-            {
-                a[o + l + 1] = (byte)t[o]; // 等价于 t.charCodeAt(o)
-            }
-            var c = new byte[i];
-            P(c, r);
-            // 假设 u, r, a 是 byte[] 类型
-            for (int o = 0; o < c.Length; o++)
-            {
-                a[o] ^= c[o];
-            }
-            var u = new byte[20];
-            P(u, a);
+            int hLen = 20; // SHA1 长度
+            int dbLen = keyLen - hLen - 1;
+            byte[] db = new byte[dbLen];
 
-            for (int o = 0; o < u.Length; o++)
-            {
-                r[o] ^= u[o];
-            }
+            // 2. 填充 DB: Hash(L) || PS || 01 || M
+            // 这里的逻辑对应原代码中的 Sha1JsEquivalent 和 a 数组的处理
+            byte[] lHash = SHA1.HashData(Encoding.UTF8.GetBytes(label));
+            lHash.CopyTo(db.AsSpan());
+            db[db.Length - 1 - label.Length - 1] = 1;
+            // 注意：原代码的 a[l]=1 逻辑比较奇特，此处建议严格对齐业务逻辑，如果 M 是空字符串，则 1 是分隔符
 
-            // 构造字符串 d
-            StringBuilder dBuilder = new StringBuilder();
+            // 3. MGF1 掩码处理 (原代码中的 P 函数)
+            byte[] dbMask = MGF1(seed, dbLen);
+            for (int k = 0; k < dbLen; k++) db[k] ^= dbMask[k];
 
-            // 第一个字符是 \x00
-            dBuilder.Append((char)0);
+            byte[] seedMask = MGF1(db, hLen);
+            for (int k = 0; k < hLen; k++) seed[k] ^= seedMask[k];
 
-            // 把 r 中的每个字节转成字符追加
-            for (int o = 0; o < r.Length; o++)
-            {
-                dBuilder.Append((char)r[o]);
-            }
+            // 4. 拼接最终要加密的数值: 00 || MaskedSeed || MaskedDB
+            byte[] em = new byte[keyLen];
+            seed.CopyTo(em.AsSpan(1, hLen));
+            db.CopyTo(em.AsSpan(1 + hLen));
 
-            // 把 a 中的每个字节转成字符追加
-            for (int o = 0; o < a.Length; o++)
-            {
-                dBuilder.Append((char)a[o]);
-            }
+            // 5. RSA 加密: c = m^e mod n
+            var m = new BigInteger(em, isUnsigned: true, isBigEndian: true);
+            var resultInt = BigInteger.ModPow(m, e, n);
 
-            // 最终结果字符串
-            byte[] ri = new byte[dBuilder.Length];
-            for (int n = 0; n < dBuilder.Length; n++)
-            {
-                ri[n] = (byte)dBuilder[n]; // 或者 i[n] = (int)o[n]; 也可
-            }
-            var le = new BigIntStruct();
-            le.FromString(ri);
-            le.Clamp();
+            // 转回字节数组并填充到 keyLen 长度
+            byte[] resultBytes = resultInt.ToByteArray(isUnsigned: true, isBigEndian: true);
+            if (resultBytes.Length == keyLen) return resultBytes;
 
-            return pubkey.doPublic(le);
+            byte[] final = new byte[keyLen];
+            resultBytes.CopyTo(final.AsSpan(keyLen - resultBytes.Length));
+            return final;
         }
-        void P(byte[] e, byte[] t)
+
+        private byte[] MGF1(ReadOnlySpan<byte> seed, int maskLen)
         {
-            int n = 0, o = 0;
+            byte[] mask = new byte[maskLen];
+            byte[] counter = new byte[4];
+            int offset = 0;
+            uint n = 0;
 
-            while (o < e.Length)
+            while (offset < maskLen)
             {
-                // 构造 i 字符串
-                var sb = new StringBuilder();
-                for (int r = 0; r < t.Length; r++)
-                    sb.Append((char)t[r]);
+                BinaryPrimitives.WriteUInt32BigEndian(counter, n);
 
-                sb.Append((char)((n >> 24) & 0xFF));
-                sb.Append((char)((n >> 16) & 0xFF));
-                sb.Append((char)((n >> 8) & 0xFF));
-                sb.Append((char)(n & 0xFF));
+                // 拼接 seed + counter
+                byte[] block = new byte[seed.Length + 4];
+                seed.CopyTo(block);
+                counter.CopyTo(block.AsSpan(seed.Length));
 
+                byte[] hash = SHA1.HashData(block);
+                int copyLen = Math.Min(hash.Length, maskLen - offset);
+                hash.AsSpan(0, copyLen).CopyTo(mask.AsSpan(offset));
 
-
-                string i = sb.ToString();
-
-                // 计算 SHA-1 值
-                var a = Sha1JsEquivalent.S(i); // 注意：S 是你之前的函数，返回类似 JS 的二进制字符串
-
-                for (int r = 0; r < a.Length && o < e.Length; r++, o++)
-                    e[o] = (byte)a[r]; // 类似 JS 的 charCodeAt
+                offset += hash.Length;
                 n++;
             }
+            return mask;
+        }
+
+        private byte[] ToBuffer(byte[] buffer)
+        {
+            byte[] result = new byte[4 + buffer.Length];
+            BinaryPrimitives.WriteUInt32LittleEndian(result, AuthMechanism);
+            buffer.CopyTo(result.AsSpan(4));
+            return result;
+        }
+
+        public byte[] RecoverSeed(byte[] decryptedBlock)
+        {
+            // 1. 分割数据
+            byte[] maskedSeed = decryptedBlock.AsSpan(1, 20).ToArray();
+            byte[] maskedDB = decryptedBlock.AsSpan(21).ToArray();
+
+            // 2. 用 MaskedDB 生成 Seed 的掩码
+            // 注意：这里的 MGF1 必须和你加密时使用的逻辑完全一致（通常是基于 SHA-1）
+            byte[] seedMask = MGF1(maskedDB, 20);
+
+            // 3. 异或还原 Seed
+            byte[] originalSeed = new byte[20];
+            for (int i = 0; i < 20; i++)
+            {
+                originalSeed[i] = (byte)(maskedSeed[i] ^ seedMask[i]);
+            }
+
+            return originalSeed;
         }
     }
 }

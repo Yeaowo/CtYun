@@ -23,5 +23,9 @@ namespace CtYun
 
         [JsonPropertyName("tenantId")]
         public int TenantId { get; set; }
+
+        [JsonPropertyName("userName")]
+        public string UserName { get; set; }
+
     }
 }

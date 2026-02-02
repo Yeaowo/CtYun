@@ -26,5 +26,8 @@ namespace CtYun.Models
         public string DesktopCode { get; set; }
 
         public DesktopInfo DesktopInfo { get; set; }
+
+        [JsonPropertyName("useStatusText")]
+        public string UseStatusText { get; set; }
     }
 }
