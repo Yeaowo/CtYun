@@ -32,7 +32,7 @@ jobs:
         echo "Version: $version"
 
     - name: Publish Windows x64
-      run: dotnet publish CtYun/CtYun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o win-x64-output
+      run: dotnet publish CtYun/CtYun.csproj -c Release -r win-x64 --self-contained -p:PublishAot=false -p:PublishSingleFile=true -p:PublishTrimmed=true -o win-x64-output
 
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
