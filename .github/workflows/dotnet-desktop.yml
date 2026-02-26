@@ -37,6 +37,20 @@ jobs:
         name: CtYun-win-x64-v${{ steps.get-version.outputs.version }}
         path: win-x64-output/CtYun.exe
 
+    - name: Create GitHub Release
+      if: github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ steps.get-version.outputs.version }}
+        name: v${{ steps.get-version.outputs.version }}
+        body: |
+          ## CtYun v${{ steps.get-version.outputs.version }}
+          
+          支持云电脑 + 云手机保活
+        files: win-x64-output/CtYun.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Docker 构建和推送
   docker-build:
     runs-on: ubuntu-latest
