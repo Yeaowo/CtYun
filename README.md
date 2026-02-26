@@ -6,7 +6,7 @@
 > :warning: **提示：** docker第一次运行不要后台执行，不要加-d运行，要添加-it， 第一次软件会生成一个新的设备信息，需要接收短信来进行风控校验，需手动输入，提示设备 **保活任务启动** 即可后台运行。
 
 设备号DEVICECODE是web_加上随机32大小写字母数字_
-例如 **web_L53itptDslz6manpE8Uq2Op1OEoKi85t** 
+例如 **web_L53itptDslz6manpE8Up2Op1OEoKi85t** 
 不要填写案例，请自己生成或更改上方案例
 
 Linux 可使用以下代码生成
@@ -20,7 +20,7 @@ docker run -it \
   -e APP_USER="你的账号" \
   -e APP_PASSWORD='你的密码' \
   -e DEVICECODE='设备Id' \
-  su3817807/ctyun:latest
+  yeaowo/ctyun:latest
 
 ```
 
@@ -31,7 +31,7 @@ docker run -d \
   -e APP_USER="你的账号" \
   -e APP_PASSWORD='你的密码' \
   -e DEVICECODE='设备Id' \
-  su3817807/ctyun:latest
+  yeaowo/ctyun:latest
 
 ```
 ### 查看日志检查是否登录并连接成功。
