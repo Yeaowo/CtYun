@@ -34,7 +34,7 @@ foreach (var d in desktopList)
 {
     if (d.UseStatusText!= "运行中")
     {
-        Utility.WriteLine(ConsoleColor.Red, $"[{d.DesktopCode}] [{d.UseStatusText}]电脑未开机，正在开机，请在2分钟后重新运行软件");
+        Utility.WriteLine(ConsoleColor.Red, $"[{d.DeviceLabel}][{d.DesktopCode}] [{d.UseStatusText}]设备未开机，正在开机，请在2分钟后重新运行软件");
     }
     var connectResult = await cyApi.ConnectAsync(d.DesktopId);
     if (connectResult.Success && connectResult.Data.DesktopInfo != null)
@@ -44,13 +44,15 @@ foreach (var d in desktopList)
     }
     else
     {
-        Utility.WriteLine(ConsoleColor.Red, $"Connect Error: [{d.DesktopId}] {connectResult.Msg}");
+        Utility.WriteLine(ConsoleColor.Red, $"Connect Error: [{d.DeviceLabel}][{d.DesktopId}] {connectResult.Msg}");
     }
 }
 
 if (activeDesktops.Count == 0) return;
 
-Utility.WriteLine(ConsoleColor.Yellow, "保活任务启动：每 60 秒强制重连一次。");
+var pcCount = activeDesktops.Count(d => !d.IsCloudPhone);
+var phoneCount = activeDesktops.Count(d => d.IsCloudPhone);
+Utility.WriteLine(ConsoleColor.Yellow, $"保活任务启动：云电脑 {pcCount} 台，云手机 {phoneCount} 台，每 60 秒强制重连一次。");
 
 // 为每台设备开启独立的保活任务
 var tasks = activeDesktops.Select(d => KeepAliveWorkerWithForcedReset(d, globalCts.Token));
@@ -84,7 +86,7 @@ async Task KeepAliveWorkerWithForcedReset(Desktop desktop, CancellationToken glo
 
         try
         {
-            Utility.WriteLine(ConsoleColor.Cyan, $"[{desktop.DesktopCode}] === 新周期开始，尝试连接 ===");
+            Utility.WriteLine(ConsoleColor.Cyan, $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] === 新周期开始，尝试连接 ===");
             await client.ConnectAsync(uri, sessionCts.Token);
 
             // 1. 发送 Json 握手信息
@@ -108,7 +110,7 @@ async Task KeepAliveWorkerWithForcedReset(Desktop desktop, CancellationToken glo
             await client.SendAsync(initialPayload, WebSocketMessageType.Binary, true, sessionCts.Token);
 
             // 3. 运行接收循环，直到 60 秒时间到
-            Utility.WriteLine(ConsoleColor.Green, $"[{desktop.DesktopCode}] 连接已就绪，保持 60 秒...");
+            Utility.WriteLine(ConsoleColor.Green, $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] 连接已就绪，保持 60 秒...");
 
             try
             {
@@ -117,12 +119,12 @@ async Task KeepAliveWorkerWithForcedReset(Desktop desktop, CancellationToken glo
             }
             catch (OperationCanceledException)
             {
-                Utility.WriteLine(ConsoleColor.Yellow, $"[{desktop.DesktopCode}] 60秒时间到，准备重连...");
+                Utility.WriteLine(ConsoleColor.Yellow, $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] 60秒时间到，准备重连...");
             }
         }
         catch (Exception ex) when (!(ex is OperationCanceledException))
         {
-            Utility.WriteLine(ConsoleColor.Red, $"[{desktop.DesktopCode}] 异常: {ex.Message}");
+            Utility.WriteLine(ConsoleColor.Red, $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] 异常: {ex.Message}");
             await Task.Delay(5000, globalToken); // 出错后等5秒再试，防止死循环刷请求
         }
         finally
@@ -143,7 +145,7 @@ async Task Ping(ClientWebSocket ws, Desktop desktop, CancellationToken ct)
 
         var byHandlePong = new SendInfo { Type = 7}.ToBuffer(false);
         await ws.SendAsync(byHandlePong, WebSocketMessageType.Binary, true, ct);
-        Utility.WriteLine(ConsoleColor.DarkGreen, $"[{desktop.DesktopCode}] -> 发送AppState成功");
+        Utility.WriteLine(ConsoleColor.DarkGreen, $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] -> 发送AppState成功");
         await Task.Delay(3000, ct);
     }
 
@@ -168,10 +170,10 @@ async Task ReceiveLoop(ClientWebSocket ws, Desktop desktop, CancellationToken ct
                 //sendTicket
 
                 Utility.WriteLine(ConsoleColor.Green,
-                    $"[{desktop.DesktopCode}] -> 收到保活校验");
+                    $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] -> 收到保活校验");
                 var response = encryptor.Execute(data);
                 await ws.SendAsync(response, WebSocketMessageType.Binary, true, ct);
-                Utility.WriteLine(ConsoleColor.DarkGreen, $"[{desktop.DesktopCode}] -> 发送保活响应成功");
+                Utility.WriteLine(ConsoleColor.DarkGreen, $"[{desktop.DeviceLabel}][{desktop.DesktopCode}] -> 发送保活响应成功");
             }
             else
             {

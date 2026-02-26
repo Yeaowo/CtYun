@@ -29,5 +29,18 @@ namespace CtYun.Models
 
         [JsonPropertyName("useStatusText")]
         public string UseStatusText { get; set; }
+
+        [JsonPropertyName("desktopType")]
+        public string DesktopType { get; set; }
+
+        [JsonPropertyName("vmType")]
+        public int VmType { get; set; }
+
+        /// <summary>
+        /// vmType=2 为云手机，0 为云电脑
+        /// </summary>
+        public bool IsCloudPhone => VmType == 2;
+
+        public string DeviceLabel => IsCloudPhone ? "云手机" : "云电脑";
     }
 }

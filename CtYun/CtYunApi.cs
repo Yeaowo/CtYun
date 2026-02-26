@@ -178,7 +178,7 @@ namespace CtYun
         {
             try
             {
-                using var content = new StringContent("{\"getCnt\":20,\"desktopTypes\":[\"1\",\"2001\",\"2002\",\"2003\"],\"sortType\":\"createTimeV1\"}", Encoding.UTF8, "application/json");
+                using var content = new StringContent("{\"getCnt\":20,\"desktopTypes\":[\"1\",\"2001\",\"2002\",\"2003\",\"3\",\"3001\",\"3002\",\"3003\",\"3004\"],\"sortType\":\"createTimeV1\"}", Encoding.UTF8, "application/json");
                 return (await PostAsync("https://desk.ctyun.cn:8810/api/desktop/client/pageDesktop", content, AppJsonSerializerContext.Default.ResultBaseClientInfo)).Data.DesktopList;
             }
             catch (Exception ex)
