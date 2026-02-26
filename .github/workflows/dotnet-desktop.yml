@@ -1,0 +1,102 @@
+name: .NET and Docker
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: write
+
+jobs:
+  # Windows 编译
+  windows-build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Read project version
+      id: get-version
+      shell: pwsh
+      run: |
+        $xml = [xml](Get-Content CtYun/CtYun.csproj)
+        $version = $xml.Project.PropertyGroup.FileVersion
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "Version: $version"
+
+    - name: Publish Windows x64
+      run: dotnet publish CtYun/CtYun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o win-x64-output
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: CtYun-win-x64-v${{ steps.get-version.outputs.version }}
+        path: win-x64-output/CtYun.exe
+
+    - name: Create GitHub Release
+      if: github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ steps.get-version.outputs.version }}
+        name: v${{ steps.get-version.outputs.version }}
+        make_latest: true
+        body: |
+          ## CtYun v${{ steps.get-version.outputs.version }}
+          
+          支持云电脑 + 云手机保活
+        files: win-x64-output/CtYun.exe
+
+  # Docker 构建和推送
+  docker-build:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Read project version
+      id: get-version
+      run: |
+        version=$(grep -oP '(?<=<FileVersion>).*?(?=</FileVersion>)' CtYun/CtYun.csproj)
+        if [ -z "$version" ]; then
+          echo "Error: Unable to read version from CtYun.csproj"
+          exit 1
+        fi
+        echo "version=$version" >> $GITHUB_ENV
+        echo "Version: $version"
+
+    - name: Publish Application
+      run: dotnet publish CtYun/CtYun.csproj -c Release -p:PublishAot=false -o publish
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+      with:
+        driver: docker-container
+
+    - name: Build and Push Multi-Arch Docker Image
+      run: |
+        docker buildx build \
+          --no-cache \
+          --platform linux/amd64,linux/arm64 \
+          -t ${{ secrets.DOCKER_USERNAME }}/ctyun:${{ env.version }} \
+          -t ${{ secrets.DOCKER_USERNAME }}/ctyun:latest \
+          -f ./CtYun/Dockerfile \
+          --push .
