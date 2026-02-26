@@ -7,20 +7,48 @@ on:
     branches: [ "master" ]
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+  # Windows 编译
+  windows-build:
+    runs-on: windows-latest
 
     steps:
-    # 检出代码 
     - uses: actions/checkout@v4
 
-    # 设置 .NET 环境
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
 
-    # 确定版本号  
+    - name: Read project version
+      id: get-version
+      shell: pwsh
+      run: |
+        $xml = [xml](Get-Content CtYun/CtYun.csproj)
+        $version = $xml.Project.PropertyGroup.FileVersion
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "Version: $version"
+
+    - name: Publish Windows x64
+      run: dotnet publish CtYun/CtYun.csproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o win-x64-output
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: CtYun-win-x64-v${{ steps.get-version.outputs.version }}
+        path: win-x64-output/CtYun.exe
+
+  # Docker 构建和推送
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
     - name: Read project version
       id: get-version
       run: |
@@ -31,32 +59,21 @@ jobs:
         fi
         echo "version=$version" >> $GITHUB_ENV
         echo "Version: $version"
-    # 恢复依赖
-    - name: Restore dependencies
-      run: dotnet restore
 
-    # 构建应用程序
-    - name: Build
-      run: dotnet build --no-restore --configuration Release
-
-    # 发布应用程序
     - name: Publish Application
       run: dotnet publish CtYun/CtYun.csproj -c Release -p:PublishAot=false -o publish
 
-    # 登录 Docker Hub
     - name: Log in to Docker Hub
       uses: docker/login-action@v2
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 设置 Buildx
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
       with:
         driver: docker-container
 
-    # 构建和推送多架构 Docker 镜像
     - name: Build and Push Multi-Arch Docker Image
       run: |
         docker buildx build \
