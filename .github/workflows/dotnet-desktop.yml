@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: write
+
 jobs:
   # Windows 编译
   windows-build:
@@ -43,17 +46,17 @@ jobs:
       with:
         tag_name: v${{ steps.get-version.outputs.version }}
         name: v${{ steps.get-version.outputs.version }}
+        make_latest: true
         body: |
           ## CtYun v${{ steps.get-version.outputs.version }}
           
           支持云电脑 + 云手机保活
         files: win-x64-output/CtYun.exe
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Docker 构建和推送
   docker-build:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
 
     steps:
     - uses: actions/checkout@v4
